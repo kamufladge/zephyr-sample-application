@@ -5,18 +5,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include "zephyr/net/net_ip.h"
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(sample_application, LOG_LEVEL_DBG);
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/net_if.h>
 #include <zephyr/sys/printk.h>
-
-/*
- * The synchronization demo has two threads that utilize semaphores and sleeping
- * to take turns printing a greeting message at a controlled rate. The demo
- * shows both the static and dynamic approaches for spawning a thread; a real
- * world application would likely use the static approach for both threads.
- */
-
-#define PIN_THREADS (IS_ENABLED(CONFIG_SMP) && IS_ENABLED(CONFIG_SCHED_CPU_MASK))
 
 /* size of stack area used by each thread */
 #define STACKSIZE 1024
@@ -32,90 +28,91 @@
  * @param my_sem       thread's own semaphore
  * @param other_sem    other thread's semaphore
  */
-void hello_loop(const char *my_name, struct k_sem *my_sem, struct k_sem *other_sem)
-{
-	const char *tname;
-	uint8_t cpu;
-	struct k_thread *current_thread;
+void hello_loop() {
+  const char *tname;
+  struct k_thread *current_thread;
+  current_thread = k_current_get();
+  tname = k_thread_name_get(current_thread);
 
-	while (1) {
-		/* take my semaphore */
-		k_sem_take(my_sem, K_FOREVER);
-
-		current_thread = k_current_get();
-		tname = k_thread_name_get(current_thread);
-#if CONFIG_SMP
-		cpu = arch_curr_cpu()->id;
-#else
-		cpu = 0;
-#endif
-		/* say "hello" */
-		if (tname == NULL) {
-			printk("%s: Hello World from cpu %d on %s!\n", my_name, cpu, CONFIG_BOARD);
-		} else {
-			printk("%s: Hello World from cpu %d on %s!\n", tname, cpu, CONFIG_BOARD);
-		}
-
-		/* wait a while, then let other thread have a turn */
-		k_busy_wait(100000);
-		k_msleep(SLEEPTIME);
-		k_sem_give(other_sem);
-	}
+  while (1) {
+    printk("%s: Hello World from %s!\n", tname, CONFIG_BOARD);
+    k_busy_wait(100000);
+    k_msleep(SLEEPTIME);
+  }
 }
-
-/* define semaphores */
-K_SEM_DEFINE(thread_a_sem, 1, 1); /* starts off "available" */
-K_SEM_DEFINE(thread_b_sem, 0, 1); /* starts off "not available" */
-
-/* thread_a is a dynamic thread that is spawned in main */
-void thread_a_entry_point(void *dummy1, void *dummy2, void *dummy3)
-{
-	ARG_UNUSED(dummy1);
-	ARG_UNUSED(dummy2);
-	ARG_UNUSED(dummy3);
-
-	/* invoke routine to ping-pong hello messages with thread_b */
-	hello_loop(__func__, &thread_a_sem, &thread_b_sem);
-}
-K_THREAD_STACK_DEFINE(thread_a_stack_area, STACKSIZE);
-static struct k_thread thread_a_data;
 
 /* thread_b is a static thread spawned immediately */
-void thread_b_entry_point(void *dummy1, void *dummy2, void *dummy3)
-{
-	ARG_UNUSED(dummy1);
-	ARG_UNUSED(dummy2);
-	ARG_UNUSED(dummy3);
+void thread_b_entry_point(void *dummy1, void *dummy2, void *dummy3) {
+  ARG_UNUSED(dummy1);
+  ARG_UNUSED(dummy2);
+  ARG_UNUSED(dummy3);
 
-	/* invoke routine to ping-pong hello messages with thread_a */
-	hello_loop(__func__, &thread_b_sem, &thread_a_sem);
+  hello_loop();
 }
-K_THREAD_DEFINE(thread_b, STACKSIZE, thread_b_entry_point, NULL, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(thread_b, STACKSIZE, thread_b_entry_point, NULL, NULL, NULL,
+                PRIORITY, 0, 0);
 extern const k_tid_t thread_b;
 
-int main(void)
-{
-	k_thread_create(&thread_a_data, thread_a_stack_area,
-			K_THREAD_STACK_SIZEOF(thread_a_stack_area), thread_a_entry_point, NULL,
-			NULL, NULL, PRIORITY, 0, K_FOREVER);
-	k_thread_name_set(&thread_a_data, "thread_a");
+static void dns_result_cb(enum dns_resolve_status status,
+                          struct dns_addrinfo *info, void *user_data) {
 
-#if PIN_THREADS
-	if (arch_num_cpus() > 1) {
-		k_thread_cpu_pin(&thread_a_data, 0);
+  char str_addr[NET_IPV6_ADDR_LEN];
+  char *addr_family = NULL;
+  void *addr;
 
-		/*
-		 * Thread b is a static thread that is spawned immediately. This means that the
-		 * following `k_thread_cpu_pin` call can fail with `-EINVAL` if the thread is
-		 * actively running. Let's suspend the thread and resume it after the affinity mask
-		 * is set.
-		 */
-		k_thread_suspend(thread_b);
-		k_thread_cpu_pin(thread_b, 1);
-		k_thread_resume(thread_b);
-	}
-#endif
+  switch (status) {
+  case DNS_EAI_CANCELED:
+    LOG_INF("DNS query was canceled");
+    return;
+  case DNS_EAI_FAIL:
+    LOG_INF("DNS resolve failed");
+    return;
+  case DNS_EAI_NODATA:
+    LOG_INF("Cannot resolve address");
+    return;
+  case DNS_EAI_ALLDONE:
+    LOG_INF("DNS resolving finished");
+    return;
+  case DNS_EAI_INPROGRESS:
+    break;
+  default:
+    LOG_INF("DNS resolving error (%d)", status);
+    return;
+  }
 
-	k_thread_start(&thread_a_data);
-	return 0;
+  if (!info) {
+    return;
+  }
+
+  if (info->ai_family == AF_INET) {
+    addr_family = "IPv4";
+    addr = &net_sin(&info->ai_addr)->sin_addr;
+  } else if (info->ai_family == AF_INET6) {
+    addr_family = "IPv6";
+    addr = &net_sin6(&info->ai_addr)->sin6_addr;
+  } else {
+    LOG_ERR("Invalid IP address family %d", info->ai_family);
+    return;
+  }
+
+  net_addr_ntop(info->ai_family, addr, str_addr, sizeof(str_addr));
+
+  LOG_INF("%s address: %s", addr_family, str_addr);
+}
+
+static uint16_t dns_id;
+
+int main(void) {
+  struct net_if *iface = net_if_get_default();
+  LOG_INF("interface found %s", iface->config.name);
+
+  int ret = dns_get_addr_info("www.zephyrproject.org", DNS_QUERY_TYPE_A,
+                              &dns_id, dns_result_cb, NULL, 2000);
+
+  if (ret < 0) {
+    LOG_ERR("Cannot resolve (%d)", ret);
+    return -1;
+  }
+
+  return 0;
 }
