@@ -14,5 +14,6 @@ manifest:
         name-allowlist:
           - babblesim_base
           - cmsis
+          - hal_stm32
   self:
     path: application

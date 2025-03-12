@@ -106,8 +106,8 @@ int main(void) {
   struct net_if *iface = net_if_get_default();
   LOG_INF("interface found %s", iface->config.name);
 
-  int ret = dns_get_addr_info("www.zephyrproject.org", DNS_QUERY_TYPE_A,
-                              &dns_id, dns_result_cb, NULL, 2000);
+  int ret = dns_get_addr_info("kamufladge.loc", DNS_QUERY_TYPE_A, &dns_id,
+                              dns_result_cb, NULL, 2000);
 
   if (ret < 0) {
     LOG_ERR("Cannot resolve (%d)", ret);

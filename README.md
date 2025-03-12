@@ -23,3 +23,7 @@ sudo iptables -t nat -A POSTROUTING -o wlo1 -j MASQUERADE
 sudo iptables -A FORWARD -i wlo1 -o zeth -m state --state RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -A FORWARD -i zeth -o wlo1 -j ACCEPT
 ```
+
+## build for nucleo_board
+
+- ``-DEXTRA_CONF_FILE=overlay_veth.conf``
