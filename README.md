@@ -26,4 +26,4 @@ sudo iptables -A FORWARD -i zeth -o wlo1 -j ACCEPT
 
 ## build for nucleo_board
 
-- ``-DEXTRA_CONF_FILE=overlay_veth.conf``
+- ``-DEXTRA_CONF_FILE=overlay_dhcp.conf``

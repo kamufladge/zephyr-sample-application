@@ -5,13 +5,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include "zephyr/net/net_event.h"
 #include "zephyr/net/net_ip.h"
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(sample_application, LOG_LEVEL_DBG);
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/conn_mgr_connectivity.h>
+#include <zephyr/net/dhcpv4.h>
 #include <zephyr/net/dns_resolve.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_ip.h>
 #include <zephyr/sys/printk.h>
 
 /* size of stack area used by each thread */
@@ -103,11 +107,27 @@ static void dns_result_cb(enum dns_resolve_status status,
 static uint16_t dns_id;
 
 int main(void) {
+  int ret;
   struct net_if *iface = net_if_get_default();
   LOG_INF("interface found %s", iface->config.name);
 
-  int ret = dns_get_addr_info("kamufladge.loc", DNS_QUERY_TYPE_A, &dns_id,
-                              dns_result_cb, NULL, 2000);
+#ifdef CONFIG_NET_DHCPV4
+  net_dhcpv4_start(iface);
+#endif
+
+  uint32_t raised_events;
+  void const *info;
+  size_t info_size;
+  struct net_if *ifaaaa;
+  ret = net_mgmt_event_wait(NET_EVENT_IPV4_ACD_SUCCEED, &raised_events, &ifaaaa,
+                            &info, &info_size, K_SECONDS(30));
+  if (ret < 0) {
+    LOG_ERR("did not connect in time (%d)", ret);
+    return -1;
+  }
+
+  ret = dns_get_addr_info("google.com", DNS_QUERY_TYPE_A, &dns_id,
+                          dns_result_cb, NULL, 2000);
 
   if (ret < 0) {
     LOG_ERR("Cannot resolve (%d)", ret);
