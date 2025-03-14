@@ -1,0 +1,6 @@
+
+/ {
+     aliases {
+             kamu-led = &blue_led_1;
+     };
+};

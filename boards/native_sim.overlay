@@ -1,0 +1,6 @@
+
+/ {
+     aliases {
+             kamu-led = &led0;
+     };
+};

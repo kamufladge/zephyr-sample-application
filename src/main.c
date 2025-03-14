@@ -5,11 +5,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include "zephyr/drivers/gpio.h"
 #include "zephyr/net/net_event.h"
 #include "zephyr/net/net_ip.h"
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(sample_application, LOG_LEVEL_DBG);
 
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/conn_mgr_connectivity.h>
 #include <zephyr/net/dhcpv4.h>
@@ -25,22 +27,35 @@ LOG_MODULE_REGISTER(sample_application, LOG_LEVEL_DBG);
 #define PRIORITY 7
 
 /* delay between greetings (in ms) */
-#define SLEEPTIME 500
+#define SLEEPTIME 5000
+
+/* The devicetree node identifier for the "led0" alias. */
+#define LED0_NODE DT_ALIAS(kamu_led)
 
 /*
- * @param my_name      thread identification string
- * @param my_sem       thread's own semaphore
- * @param other_sem    other thread's semaphore
+ * A build error on this line means your board is unsupported.
+ * See the sample documentation for information on how to fix this.
  */
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+
 void hello_loop() {
   const char *tname;
   struct k_thread *current_thread;
   current_thread = k_current_get();
   tname = k_thread_name_get(current_thread);
 
+  if (!gpio_is_ready_dt(&led)) {
+    return;
+  }
+
+  int ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
+  if (ret < 0) {
+    return;
+  }
+
   while (1) {
+    gpio_pin_toggle_dt(&led);
     printk("%s: Hello World from %s!\n", tname, CONFIG_BOARD);
-    k_busy_wait(100000);
     k_msleep(SLEEPTIME);
   }
 }
@@ -108,6 +123,7 @@ static uint16_t dns_id;
 
 int main(void) {
   int ret;
+
   struct net_if *iface = net_if_get_default();
   LOG_INF("interface found %s", iface->config.name);
 
